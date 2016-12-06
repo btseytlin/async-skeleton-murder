@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <script
+          src="https://code.jquery.com/jquery-3.1.1.min.js"
+          integrity="sha256-hVVnYaiADRTO2PzUGmuLJr8BLUSjGIZsDYGmIJLv2b8="
+          crossorigin="anonymous"></script>
+        <link href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-BVYiiSIFeK1dGmJRAkycuHAHRg32OmUcww7on3RYdg4Va+PmSTsz/K68vbdEjh4u" crossorigin="anonymous">
+        <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha384-Tc5IQib027qvyjSMfHjOMaLkfuWVxZxUPnCJA7l2mCWNIpG9mGCD8wGNIcPD7Txa" crossorigin="anonymous"></script>
+        
+        <script type="text/javascript">
+            var HOST ='localhost'
+            var PORT = '8765'
+
+            // use vanilla JS because why not
+            window.addEventListener("load", function() {
+                
+                // create websocket instance
+                var websocket = new WebSocket("ws://"+HOST+":"+PORT+"/ws");
+                
+                // add event listener reacting when message is received
+                websocket.onmessage = function (event) {
+                    var output = document.getElementById("output");
+                    // put text into our output div
+                    messages = event.data.split("\n");
+                    for (var i=0;i<messages.length;i++){
+                        $('#output').append("<p>"+messages[i]+"</p>")
+                    }
+
+                    $("#output").animate({
+                        scrollTop: $("#output")[0].scrollHeight
+                    }, 'fast');
+
+                };
+
+                var form = document.getElementsByClassName("form-inline");
+                var input = document.getElementById("input");
+                form[0].addEventListener("submit", function (e) {
+                    // on forms submission send input to our server
+                    input_text = input.value;
+                    websocket.send(input_text);
+                    $('#input').val('')
+                    e.preventDefault()
+                })
+
+                $('#attack_btn').click(function(e){
+                    var attack_command = "::attack";
+                    websocket.send(attack_command);
+                    e.preventDefault()
+                })
+                $('#defend_btn').click(function(e){
+                    var defend_command = "::defense";
+                    websocket.send(defend_command);
+                    e.preventDefault()
+                })
+
+            });
+        </script>
+        <style>
+            /* just some super basic css to make things bit more readable */
+            #output { 
+
+                width: 1000px;
+                height:500px;
+                border: 1px solid grey;
+                overflow-y: scroll;
+                text-align: left;
+             }
+
+            #input_container {
+                text-align: left;
+            }
+             .vertical-center {
+                  height:100%;
+                  width:100%;
+
+                  text-align: center;  /* align the inline(-block) elements horizontally */
+                  font: 0/0 a;         /* remove the gap between inline(-block) elements */
+                }
+
+                .vertical-center:before {    /* create a full-height inline block pseudo=element */
+                  content: " ";
+                  display: inline-block;
+                  vertical-align: middle;    /* vertical alignment of the inline element */
+                  height: 100%;
+                }
+
+                .vertical-center > .container {
+                  max-width: 100%;
+
+                  display: inline-block;
+                  vertical-align: middle;  /* vertical alignment of the inline element */
+                                           /* reset the font property */
+                  font: 16px/1 "Helvetica Neue", Helvetica, Arial, sans-serif;
+                }
+        </style>
+    </head>
+    <body>
+        <div class='container' style="height: 800px;width:1000px;">
+            <div class='vertical-center'>
+                <div class='container'>
+                    <div id="output"></div>
+                    <div class='input_container' style="width:1000px;">
+                        <form class="form-inline">
+                         <div class="form-group">
+                            <input id="input" class="form-control" style="width:600px"></input>
+                            <input type="submit" class="form-control"></input>
+                          </div>
+                        </form>
+                        <div class='form-group'>
+                            <button id="attack_btn" class="btn button" >Attack</button>
+                            <button id="defend_btn" class="btn button" >Block</button>
+                        </div>
+                    </div>
+                
+                </div>
+            </div>
+        </div>
+    </body>
+</html>
