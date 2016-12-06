@@ -18,6 +18,39 @@ class ClientAlreadyExistsException(Exception):
 class ClientNotRegisteredInRoomException(Exception):
     pass
 
+class SystemMessage():
+    valid_msg_types = [
+        'registered', #client.uid, client.username
+        'joined_room', #room.uid, room.name
+        'client_joined_room', #client.uid, client.username
+    ]
+
+    def __init__(self, emitter = None, msg_type = None, args=None, targets=None):
+        self.emitter = emitter 
+        self.msg_type = msg_type
+        self.args = args
+        self.targets = targets
+
+class GameSystemMessage(SystemMessage):
+    valid_msg_types = [
+            "creature_took_damage",
+            "creature_health_report",
+            "creature_blocked_damage",
+            "creature_changed_state",
+            "creature_death",
+            "creature_action_interrupted",
+            "creature_attack_started",
+            "creature_attack_finished",
+            "creature_def",
+            "creature_no_def",
+            "creature_start",
+            "ai_new_target",
+            "ply_notify",
+
+            'ui_setup_creature' #creature.uid, creature.name, creature.alive, creature.max_health, creature.health, creature.target, creature.state
+            ]
+
+
 class Message():
     def __init__(self, author = None, text = None, targets = None):
         self.author = author 
@@ -25,11 +58,12 @@ class Message():
         self.targets = targets
 
 class Client():
-    def __init__(self, websocket=None,username=None, room=None, player=None):
+    def __init__(self,  uid=None,websocket=None,username=None, room=None, player=None):
         self.websocket = websocket
         self.username = username
         self.room = room
         self.player = player
+        self.uid = uid or str(uuid.uuid4())[:8]
 
     @property
     def chat_name(self):
@@ -38,7 +72,7 @@ class Client():
 
 class Room():
     chat_name = 'GLOBAL'
-
+    room_actions = []
     def __init__(self, server=None, loop=None, messages = None, clients = None, uid = None, _name = None):
         self.server = server
         self.loop = loop or asyncio.get_event_loop()
@@ -77,12 +111,12 @@ class Room():
         return command, args
 
     async def on_client_joined(self, client):
-        message = Message(self, "Welcome to the {}! Here's what happened before you came:".format(self.name))
-        await self.send_message(message, log=False)
+        await self.send_system_message(SystemMessage(self, 'joined_room',[self.uid, self.name], targets=[client]))
         history = self.readable_history(client)
         if history:
             await self.send_text(history, [client])
         message = Message(self, '{} connected'.format(client.username))
+        await self.send_system_message(SystemMessage(self, 'client_joined_room',[client.uid, client.username]))
         await self.send_message(message)
 
     async def on_client_disconnected(self, client):
@@ -90,8 +124,6 @@ class Room():
         await self.send_message(message)
 
     async def handle_command(self, message):
-        #message = Message(self, 'Unrecognized command', targets=[client])
-        #await self.send_message(message, log = False) 
         pass
 
     async def handle_message(self, client, text):
@@ -120,8 +152,6 @@ class Room():
                 self.clients.remove(client)
                 await self.on_client_disconnected(client)
                 break
-        
-
 
     async def send_text(self, text, targets): #Sending text doesn't show an author and is never logged
         if not targets:
@@ -145,6 +175,14 @@ class Room():
         if log:
             self.messages.append(message)
 
+    async def send_system_message(self, msg):
+        targets = msg.targets
+        if not targets:
+            targets = self.clients #If no target is set its a global (room) message
+        sending_list = [self.server.send("sysmsg|{}|{}|{}".format(msg.emitter.uid, msg.msg_type, '|'.join([str(x) for x in msg.args])), client.websocket) for client in targets]
+        if sending_list:
+            done, pending = await asyncio.wait(sending_list)
+
     
 class SubRoom(Room):
     async def remove_client(self, client):
@@ -156,40 +194,66 @@ class SubRoom(Room):
 
 class SkeletonRoom(SubRoom):
     chat_name = "Spooky voice"
-
     def __init__(self, server=None, loop=None, messages = None, clients = None, uid = None, _name = None, skeleton=None, players=None):
         super(SkeletonRoom, self).__init__(server, loop, messages, clients, uid, _name)
 
-        def emit_message(creature, text):
-            if isinstance(creature, skeletons.Player):
-                clients = [client for client in self.clients if client.player == creature]
-                if clients:
-                    client = clients[0]
-                else:
-                    return False
-                message = Message(client, text)
-            else:
-                message = Message(self, text)
-
-            self.loop.create_task(self.send_message(message, no_author=True))
-
-        self.emit_message = emit_message
 
         self.skeleton = skeleton or skeletons.Skeleton(loop = self.loop,name='skeleton')
-        self.skeleton.emit_message = emit_message
+        self.skeleton.emit_message = self.handle_game_message
         self.players = players or []
 
         self.start_game()
+
+    async def remove_client(self, client):
+        await super().remove_client(client)
+        if not self.clients or not [client for client in self.clients if client.player.alive]: # Suicide
+            self.server.rooms.remove(self)
+            self = None
+
+    def handle_game_message(self, emitter, msg_type, *args):
+        if not msg_type in GameSystemMessage.valid_msg_types:
+            raise(Exception("Invalid message received from game."))
+
+        if msg_type == 'ply_notify':
+            player = emitter
+            client = None
+            for cl in self.clients:
+                if cl.player == player:
+                    client = cl
+                    break
+            if client:
+                message = Message(self, ' '.join([str(x) for x in args]), targets=[client])
+                self.loop.create_task(self.send_message(message, no_author=True))
+                return 
+
+        if msg_type == 'ai_new_target':
+            target = args[0]
+            args = [target.name]
+
+        #Send the message for the client to handle
+        sys_message = SystemMessage(emitter, msg_type, list(args))
+        self.loop.create_task(self.send_system_message(sys_message))
+
 
     async def on_client_joined(self, client):
         ply = skeletons.Player(loop = self.loop,name=client.username, target=self.skeleton, client=client)
 
         ply.target = self.skeleton
-        ply.emit_message = self.emit_message
+        ply.emit_message = self.handle_game_message
         client.player = ply
         self.skeleton.targets.append(client.player)
+
+        ui_setup_msg = GameSystemMessage(self, 'ui_setup_creature', self.skeleton.full_report(), [client])
+        await self.send_system_message(ui_setup_msg)
+
+        for cl in self.clients:
+            ui_setup_msg = GameSystemMessage(self, 'ui_setup_creature', cl.player.full_report(), [client])
+            await self.send_system_message(ui_setup_msg)
+
         message = Message(self, '{} entered the skeleton fight!'.format(client.username))
         await self.send_message(message)
+
+
 
         
     async def on_client_disconnected(self, client):
@@ -259,7 +323,6 @@ class SkeletonRoom(SubRoom):
 class ChatRoom(SubRoom):
     chat_name = 'Chat'
 
-
     async def handle_command(self, message):
         client = message.author
         text = message.text
@@ -293,6 +356,15 @@ class ChatRoom(SubRoom):
 
 class LobbyRoom(Room):
     chat_name = 'Lobby'
+    async def register_client(self, client):
+        try:
+            self.clients.add(client)
+            client.room = self
+            await self.send_system_message(SystemMessage(self, 'registered',[client.uid, client.username], targets=[client]))
+            await self.on_client_joined(client)
+            return client
+        except ClientAlreadyExistsException as e:
+            await self.server.send('Client already registered', client.websocket)
 
     async def handle_command(self, message):
         client = message.author
@@ -403,6 +475,7 @@ class ChatServer:
         return None
 
     async def send(self, text, websocket):
+        print('>', text)
         await websocket.send(text)
 
     def valid_username(self, text):
@@ -426,6 +499,7 @@ class ChatServer:
                     await self.room.register_client(client)
                     
                 text = await websocket.recv()
+                print('<', text)
                 response = await client.room.handle_message(client, text)
 
             except websockets.exceptions.ConnectionClosed as e:
@@ -434,7 +508,7 @@ class ChatServer:
                 break
 
     def run(self):
-        self.websocket_server = websockets.serve(self.handler, self.host, self.port)
+        self.websocket_server = websockets.serve(self.handler, self.host, self.port, timeout=60)
         self.loop.run_until_complete(self.websocket_server)
         asyncio.async(wakeup()) #HACK so keyboard interrupt works on Windows
         self.loop.run_forever()

@@ -12,30 +12,158 @@
             var HOST ='localhost'
             var PORT = '8765'
 
-            // use vanilla JS because why not
+            var username = null
+            var uid = null
+
+            var room_uid = null
+            var room_name = null
+
+
+            function update_self_ui(){
+
+            }
+
+            function update_room_ui(){
+                if (room_name != null){
+                    $('#room_name').text(room_name)
+                }
+                else{
+                    $('#room_name').text('')
+                }
+            }
+
+            function update_clients_ui(){
+                $('#room_name').text(room_name)
+            }
+
+            function setup_new_creature(args){
+                //uid, name, alive, max_health, health, state, target_uid
+                console.log(args)
+                uid = args[0]
+                name = args[1]
+                alive = args[2]
+                max_health = args[3]
+                health = args[4]
+                state = args[5]
+                target = args[6]
+                if (!$('#room_left_panel #'+uid).length){
+                    new_elem = [
+                    '<div id="'+uid+'" style="width:100%;text-align:left;margin-bottom:10px;">',
+                        '<span class="creature_name">'+name+'</span>',
+                        '<span class="health">'+health+'</span>/<span class="health_max">'+max_health+'</span>',
+                        '<span class="target">target: <u>'+target+'</u></span>',
+                        '<span class="state">state: <u>'+ state + '</u></span>',
+                    '</div>'
+                    ]
+                    if (!alive){
+                        new_elem.push('</s>')
+                        new_elem.unshift('<s>')
+                    }
+                    $('#room_left_panel').append(new_elem.join('\n'))
+                }
+            }
+            
+            function handle_system_message(message){
+                system_msg_components = message.split('|')
+                emitter_id = system_msg_components[1];
+                msg_type = system_msg_components[2];
+                args = system_msg_components.slice(3,system_msg_components.length);
+
+                console.log(emitter_id, msg_type, args)
+
+                /*
+                            "creature_took_damage",
+            "creature_health_report",
+            "creature_blocked_damage",
+            "creature_changed_state",
+            "creature_death",
+            "creature_action_interrupted",
+            "creature_attack_started",
+            "creature_attack_finished",
+            "creature_def",
+            "creature_no_def",
+            "creature_start",
+            "ai_new_target",
+            "ply_notify",
+            */
+
+                switch(msg_type) {
+                    case 'registered':
+                        uid = args[0]
+                        username = args[1]
+                        update_self_ui()
+                        break;
+                    case 'joined_room':
+                        room_uid = args[0]
+                        room_name = args[1]
+                        update_room_ui()
+                        break;
+                    case 'ui_setup_creature':
+                        setup_new_creature(args)
+                        break;
+                    case 'creature_health_report':
+                        uid = emitter_id
+                        health = args[0]
+                        $('#'+uid+' .health').text(health)
+                        break
+
+                    case 'creature_changed_state':
+                        uid = emitter_id 
+                        $('#'+uid+' .state').html('state: <u>'+args[0]+'</u>')
+                        break
+
+                    case 'creature_death':
+                        uid = emitter_id 
+                        $('#'+uid).html('<s>'+$('#'+uid).html()+'</s>')
+                        break
+
+                    case 'ai_new_target':
+                        uid = emitter_id 
+                        $('#'+uid+' .target').html('target: <u>'+args[0]+'</u>')
+                        break
+
+
+                    default:
+                        console.log('UNKNOWN MESSAGE')
+                }
+
+            }
+
+            function handle_chat_message(message){
+                var output = document.getElementById("output");
+                messages = event.data.split("\n");
+                for (var i=0;i<messages.length;i++){
+                    $('#output').append("<p>"+messages[i]+"</p>")
+                }
+                $("#output").animate({
+                    scrollTop: $("#output")[0].scrollHeight
+                }, 0);
+            }
+            function handle_websocket_message(message){
+                if(message.includes('sysmsg')){
+                    handle_system_message(message)
+                }
+                else{
+                    handle_chat_message(message)
+                }
+            }
+
+
             window.addEventListener("load", function() {
                 
                 // create websocket instance
                 var websocket = new WebSocket("ws://"+HOST+":"+PORT+"/ws");
                 
                 // add event listener reacting when message is received
+
+
                 websocket.onmessage = function (event) {
-                    var output = document.getElementById("output");
-                    // put text into our output div
-                    messages = event.data.split("\n");
-                    for (var i=0;i<messages.length;i++){
-                        $('#output').append("<p>"+messages[i]+"</p>")
-                    }
-
-                    $("#output").animate({
-                        scrollTop: $("#output")[0].scrollHeight
-                    }, 'fast');
-
+                    handle_websocket_message(event.data)
                 };
 
                 var form = document.getElementsByClassName("form-inline");
                 var input = document.getElementById("input");
-                form[0].addEventListener("submit", function (e) {
+                $('.form-inline').submit(function (e) {
                     // on forms submission send input to our server
                     input_text = input.value;
                     websocket.send(input_text);
@@ -58,11 +186,14 @@
         </script>
         <style>
             /* just some super basic css to make things bit more readable */
+            #room_left_panel{
+                height:100%;
+
+            }
             #output { 
 
-                width: 1000px;
-                height:500px;
-                border: 1px solid grey;
+                height:100%;
+
                 overflow-y: scroll;
                 text-align: left;
              }
@@ -99,7 +230,12 @@
         <div class='container' style="height: 800px;width:1000px;">
             <div class='vertical-center'>
                 <div class='container'>
-                    <div id="output"></div>
+                    <div id="room_info"><h1 id='room_name'></h1></div>
+                    <div class='container'>
+                        <div class="row" style="height:300px;">
+                            <div class='col-md-3 col-lg-3 panel panel-default' id="room_left_panel">...</div><div class='panel panel-default col-md-8 col-lg-8' id="output"></div>
+                        </div>
+                    </div>
                     <div class='input_container' style="width:1000px;">
                         <form class="form-inline">
                          <div class="form-group">

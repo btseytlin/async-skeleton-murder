@@ -2,11 +2,12 @@ from transitions import Machine
 import asyncio
 import random
 import concurrent
-
+import uuid
 
 class Creature:
     states = ['idle', 'attacking', 'defending', 'dead']
-    def __init__(self, name, alive=True, machine=None, max_health=100, damage=5, action_time=3, target=None):
+    def __init__(self, name, uid=None, alive=True, machine=None, max_health=100, damage=5, action_time=3, target=None):
+        self.uid = uid or str(uuid.uuid4())[:8]
         self.name = name
         self.alive = alive
         self.max_health = max_health
@@ -19,7 +20,7 @@ class Creature:
 
         self.action_task = None
 
-        self.machine = machine or Machine(model=self, states=Creature.states, initial='idle', before_state_change='ambient_sounds')
+        self.machine = machine or Machine(model=self, states=Creature.states, initial='idle', after_state_change='alert_state_change')
         self.machine.add_transition(trigger='begin_attack', source='idle', dest='attacking', after = 'on_begin_attack')
         self.machine.add_transition(trigger='interrupt', source='attacking', dest='idle', after = 'on_interrupt')
         self.machine.add_transition(trigger='begin_defense', source='idle', dest='defending', after = 'on_defend')
@@ -30,8 +31,14 @@ class Creature:
             if state != 'dead':
                 self.machine.add_transition(trigger='die', source=state, dest='dead', after='on_death')
 
-    def emit_message(self, text):
-        print(text)
+    def full_report(self):
+        rep = [str(x) for x in [self.uid, self.name, self.alive, self.max_health, self.health, self.state]]
+        if self.target:
+            rep.append(str(self.target.name))
+        return rep
+
+    def emit_message(self, emitter, msg_type, *args):
+        print(args)
 
     def check_alive(self):
         if self.health <= 0:
@@ -43,13 +50,15 @@ class Creature:
             if self.state == 'attacking':
                 self.interrupt()
                 
-
-            self.emit_message(self,self.name+ ' takes damage: '+ str(dmg))
+            self.emit_message(self,"creature_took_damage", dmg)
             self.health = self.health - dmg
+            self.emit_message(self,"creature_health_report", self.health)
             self.check_alive()
         else:
+            self.emit_message(self,"creature_blocked_damage")
 
-            self.emit_message(self,self.name+ ' blocked the attack!')
+    def alert_state_change(self):
+        self.emit_message(self,"creature_changed_state", self.state)
 
     def ambient_sounds(self):
         general_text = []
@@ -63,38 +72,42 @@ class Creature:
         sound= random.choice(general_text + health_text)
 
     def on_death(self):
-        self.emit_message(self, self.name + ' died.')
+        self.emit_message(self, "creature_death")
 
     def on_interrupt(self):
         self.action_task.cancel()
         self.action_task = None
-        self.emit_message(self, self.name + ' was interrupted by the attack!')
+        self.emit_message(self, "creature_action_interrupted")
 
     def on_begin_attack(self):
-        self.emit_message(self, self.name + ':'+'preparing attack')
+        self.emit_message(self, "creature_attack_started")
 
     def on_attack(self):
-        self.emit_message(self, self.name + ':'+'attack landed')
+        self.emit_message(self, "creature_attack_finished")
         if self.target:
             self.target.take_damage(self.damage)
 
     def on_defend(self):
-        self.emit_message(self, self.name + ':'+'defense')
+        self.emit_message(self, "creature_def")
         self.defense = True
 
     def stop_defense(self):
-        self.emit_message(self, self.name + ':'+'no defense')
+        self.emit_message(self, "creature_no_def")
         self.defense = False
+
+    async def run(self):
+        self.emit_message(self, 'creature_start')
 
     
 
 class Skeleton(Creature):
-    def __init__(self, name, loop = None, alive=True, machine=None, max_health=100,  damage=5,action_time=3, target=None, targets=None):
-        super(Skeleton, self).__init__(name, alive, machine, max_health, damage,action_time, target)
+    def __init__(self, name, uid = None, loop = None, alive=True, machine=None, max_health=100,  damage=5,action_time=3, target=None, targets=None):
+        super(Skeleton, self).__init__(name, uid, alive, machine, max_health, damage,action_time, target)
         self.loop = loop or asyncio.get_event_loop()
         self.targets = targets or []
 
     async def run(self):
+        await super(Skeleton, self).run()
         while True:
             if self.alive:
                 if not self.target or not self.target.alive:
@@ -102,7 +115,8 @@ class Skeleton(Creature):
                         await asyncio.sleep(5)
                     else:
                         self.target = random.choice(self.targets)
-                        self.emit_message(self, 'Skeleton picked a new target: {}'.format(self.target.name))
+                        #self.emit_message(self, 'Skeleton picked a new target: {}'.format(self.target.name))
+                        self.emit_message(self,"ai_new_target", self.target)
 
                 if self.target:
                     if self.state == 'idle':
@@ -121,8 +135,8 @@ class Skeleton(Creature):
             await asyncio.sleep(1)
 
 class Player(Creature):
-    def __init__(self, name, loop = None, alive=True, machine=None, max_health=100, damage=20, action_time=2, target=None, client=None):
-        super(Player, self).__init__(name, alive, machine, max_health, damage, action_time, target)
+    def __init__(self, name, uid=None, loop = None, alive=True, machine=None, max_health=100, damage=20, action_time=2, target=None, client=None):
+        super(Player, self).__init__(name, uid, alive, machine, max_health, damage, action_time, target)
         self.loop = loop or asyncio.get_event_loop()
         self.client = client
 
@@ -132,7 +146,7 @@ class Player(Creature):
                     self.begin_attack()
                     self.action_task = self.loop.call_later(self.action_time, self.action_complete)    
             else:
-                self.emit_message(self, "Can't attack now!")
+                self.emit_message(self,"ply_notify", "Can't attack now!")
 
     async def defend(self):
         if self.alive and self.target and self.target.alive:
@@ -140,5 +154,5 @@ class Player(Creature):
                     self.begin_defense()
                     self.action_task = self.loop.call_later(self.action_time, self.action_complete)
             else:
-                self.emit_message(self, "Can't defend now!")       
+                self.emit_message(self,"ply_notify", "Can't defend now!")      
 
