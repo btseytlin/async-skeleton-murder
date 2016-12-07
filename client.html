@@ -12,23 +12,51 @@
             var HOST ='localhost'
             var PORT = '8765'
 
-            var username = null
-            var uid = null
+            var client_uid = null
+            var client_username=  null 
 
             var room_uid = null
             var room_name = null
+            var room_type = null
 
+            var websocket = null
+
+            var creatures = {}
+
+            function hide_registration_menu(){
+                $('#registration_menu').hide()
+            }
 
             function update_self_ui(){
 
             }
 
             function update_room_ui(){
+                creatures = {}
+                $('#room_left_panel').html('')
+                $('#output').html('')
+                $('#lobby_input').val('')
+                $('#input').val('')
+                $('#room_name').text('')
+                $('#lobby_validation_report').text('')
                 if (room_name != null){
                     $('#room_name').text(room_name)
                 }
                 else{
                     $('#room_name').text('')
+                }
+
+                switch(room_type){
+                    case 'lobby':
+                        $('#lobby_menu').show()
+                        $('#main_menu').hide()
+                        break
+                    case 'skeleton':
+                        $('#lobby_menu').hide()
+                        $('#main_menu').show()
+                        break
+                    default:
+                        console.log('Unknown room type!')
                 }
             }
 
@@ -38,7 +66,6 @@
 
             function setup_new_creature(args){
                 //uid, name, alive, max_health, health, state, target_uid
-                console.log(args)
                 uid = args[0]
                 name = args[1]
                 alive = args[2]
@@ -46,13 +73,27 @@
                 health = args[4]
                 state = args[5]
                 target = args[6]
+                if (target == undefined){
+                    target = 'none'
+                }
+                creature = {
+                    'name': name,
+                    'alive': alive,
+                    'max_health': max_health,
+                    'health': health,
+                    'state': state,
+                    'target': target,
+                }
+
+                creatures[uid] = creature
+
                 if (!$('#room_left_panel #'+uid).length){
                     new_elem = [
                     '<div id="'+uid+'" style="width:100%;text-align:left;margin-bottom:10px;">',
-                        '<span class="creature_name">'+name+'</span>',
-                        '<span class="health">'+health+'</span>/<span class="health_max">'+max_health+'</span>',
-                        '<span class="target">target: <u>'+target+'</u></span>',
-                        '<span class="state">state: <u>'+ state + '</u></span>',
+                        '<div class="creature_name">'+name+'</div>',
+                        '<div><span class="health">'+health+'</span>/<span class="health_max">'+max_health+'</span></div>',
+                        '<div class="target">target: <u>'+target+'</u></div>',
+                        '<div class="state">state: <u>'+ state + '</u></div>',
                     '</div>'
                     ]
                     if (!alive){
@@ -62,7 +103,12 @@
                     $('#room_left_panel').append(new_elem.join('\n'))
                 }
             }
+
+            function find_creature_by_uid(uid){
+                return creatures[uid]
+            }
             
+
             function handle_system_message(message){
                 system_msg_components = message.split('|')
                 emitter_id = system_msg_components[1];
@@ -73,65 +119,225 @@
 
                 /*
                             "creature_took_damage",
-            "creature_health_report",
-            "creature_blocked_damage",
-            "creature_changed_state",
-            "creature_death",
-            "creature_action_interrupted",
-            "creature_attack_started",
-            "creature_attack_finished",
-            "creature_def",
-            "creature_no_def",
-            "creature_start",
-            "ai_new_target",
-            "ply_notify",
+                            "creature_health_report",
+                            "creature_blocked_damage",
+                            "creature_changed_state",
+                            "creature_death",
+                            "creature_action_interrupted",
+                            "creature_attack_started",
+                            "creature_attack_finished",
+                            "creature_def",
+                            "creature_no_def",
+                            "creature_start",
+                            "ai_new_target",
+                            "ply_notify",
             */
 
                 switch(msg_type) {
+                    case 'username_prompt':
+                        break;
+
+                    case 'username_invalid':
+                        $('#username_validation_report').text('Username invalid or taken, try another.')
+                        break;
+
                     case 'registered':
-                        uid = args[0]
-                        username = args[1]
+                        hide_registration_menu()
+                        client_uid = args[0]
+                        client_username = args[1]
                         update_self_ui()
                         break;
+
                     case 'joined_room':
                         room_uid = args[0]
                         room_name = args[1]
+                        room_type = args[2]
+
                         update_room_ui()
                         break;
+
+                    case 'client_joined_room':
+                        client_uid = args[0]
+                        client_uname = args[1]
+
+                        if (room_type == 'skeleton'){
+                            handle_chat_message('<u>'+client_uname+'</u> joined the fight!')
+                        }
+                        break;
+
+                    case 'client_left_room':
+                        client_uid = args[0]
+                        client_uname = args[1]
+
+                        if (room_type == 'skeleton'){
+                            handle_chat_message('<u>'+client_uname+'</u> left the fight!')
+                        }
+                        break;
+
+
                     case 'ui_setup_creature':
                         setup_new_creature(args)
                         break;
+
                     case 'creature_health_report':
                         uid = emitter_id
                         health = args[0]
                         $('#'+uid+' .health').text(health)
                         break
 
+                    case 'creature_took_damage':
+                        uid = emitter_id
+                        dmg = args[0]
+                        creature = find_creature_by_uid(uid)
+                        if (creature){
+                            message = '<u>'+creature['name']+'</u>'+' took '+String(dmg)+' damage.'
+                            console.log(uid, client_uid)
+                            if (uid == client_uid){
+                                message = "<span class='text-danger'>"+message+"</span>"
+                            }
+                            handle_chat_message(message)
+                        }
+                        break
+
+
                     case 'creature_changed_state':
                         uid = emitter_id 
-                        $('#'+uid+' .state').html('state: <u>'+args[0]+'</u>')
+                        state = args[0]
+                        $('#'+uid+' .state').html('state: <u>'+state+'</u>')
+
+
+                        // creature = find_creature_by_uid(uid)
+                        // if (creature){
+                        //     handle_chat_message('<u>'+creature['name']+'</u>'+' is now '+state+'.')
+                        // }
+
                         break
 
                     case 'creature_death':
                         uid = emitter_id 
                         $('#'+uid).html('<s>'+$('#'+uid).html()+'</s>')
+
+                        creature = find_creature_by_uid(uid)
+                        if (creature){
+                            message = '<u>'+creature['name']+'</u>'+' died'
+                            if (uid == client_uid){
+                                message = "<span class='text-danger'>"+message+"</span>"
+                            }
+                            handle_chat_message(message)
+                        }
                         break
 
                     case 'ai_new_target':
                         uid = emitter_id 
-                        $('#'+uid+' .target').html('target: <u>'+args[0]+'</u>')
+                        target = args[0]
+                        target_name =find_creature_by_uid(target)['name']
+                        $('#'+uid+' .target').html('target: <u>'+target_name+'</u>')
+
+                        creature = find_creature_by_uid(uid)
+                        if (creature){
+                            handle_chat_message('<u>'+creature['name']+'</u>'+' selected a new target: '+target_name)
+                        }
+
+                        break
+
+                    
+                    case 'creature_blocked_damage':
+                        uid = emitter_id
+                        creature = find_creature_by_uid(uid)
+                        if (creature){
+                            message = '<u>'+creature['name']+'</u>'+' blocked the attack!'
+                            if (creature['name'] == 'skeleton'){
+                                message = "<span class='text-warning'>"+message+"</span>"
+                            }
+                            else if (uid == client_uid){
+                                message = "<span class='text-success'>"+message+"</span>"
+                            }
+                            handle_chat_message(message)
+                        }
+
+                        break
+
+                    case 'creature_action_interrupted':
+                        uid = emitter_id
+                        creature = find_creature_by_uid(uid)
+                        if (creature){
+                            message = '<u>'+creature['name']+'</u>'+' was interrupted!'
+                            if (creature['name'] == 'skeleton'){
+                                message = "<span class='text-success'>"+message+"</span>"
+                            }
+                            else if (uid == client_uid){
+                                message = "<span class='text-danger'>"+message+"</span>"
+                            }
+                            handle_chat_message(message)
+                        }
+
+                        break
+
+                    case 'creature_attack_started':
+                        uid = emitter_id
+                        creature = find_creature_by_uid(uid)
+
+                        if (creature){
+                            message = '<u>'+creature['name']+'</u>'+' prepares to attack!'
+                            if (creature['name'] == 'skeleton'){
+                                message = "<span class='text-warning'>"+message+"</span>"
+                            }
+                            handle_chat_message(message)
+                        }
+
+                        break
+
+                    case 'creature_attack_finished':
+                        uid = emitter_id
+                        creature = find_creature_by_uid(uid)
+                        if (creature){
+                            handle_chat_message('<u>'+creature['name']+'</u>'+' lands the attack!')
+                        }
                         break
 
 
-                    default:
-                        console.log('UNKNOWN MESSAGE')
+                    case 'creature_def':
+                        uid = emitter_id
+                        creature = find_creature_by_uid(uid)
+                        if (creature){
+                            message = '<u>'+creature['name']+'</u>'+' is blocking!'
+                            if (creature['name'] == 'skeleton'){
+                                message = "<span class='text-warning'>"+message+"</span>"
+                            }
+                            else if (uid == client_uid){
+                                message = "<span class='text-info'>"+message+"</span>"
+                            }
+                            handle_chat_message(message)
+                        }
+
+                        break
+
+
+                    case 'creature_no_def':
+                        uid = emitter_id
+                        creature = find_creature_by_uid(uid)
+                        if (creature){
+                            message = '<u>'+creature['name']+'</u>'+' is exposed!'
+                            if (uid == client_uid){
+                                message = "<span class='text-warning'>"+message+"</span>"
+                            }
+                            handle_chat_message(message)
+                        }
+
+                        break
+
+                    case 'validation_error':
+                        error_text = args[0]
+                        $('#lobby_validation_report').text(error_text)
+                        break;
+
                 }
 
             }
 
             function handle_chat_message(message){
                 var output = document.getElementById("output");
-                messages = event.data.split("\n");
+                messages = message.split("\n");
                 for (var i=0;i<messages.length;i++){
                     $('#output').append("<p>"+messages[i]+"</p>")
                 }
@@ -151,8 +357,10 @@
 
             window.addEventListener("load", function() {
                 
+                $('#main_menu').hide()
+                $('#lobby_menu').hide()
                 // create websocket instance
-                var websocket = new WebSocket("ws://"+HOST+":"+PORT+"/ws");
+                websocket = new WebSocket("ws://"+HOST+":"+PORT+"/ws");
                 
                 // add event listener reacting when message is received
 
@@ -161,11 +369,24 @@
                     handle_websocket_message(event.data)
                 };
 
-                var form = document.getElementsByClassName("form-inline");
-                var input = document.getElementById("input");
-                $('.form-inline').submit(function (e) {
+                $('#registration_form').submit(function (e) {
                     // on forms submission send input to our server
-                    input_text = input.value;
+                    input_text = $('#username_input').val();
+
+                    websocket.send(input_text);
+                    e.preventDefault()
+                })
+                $("#lobby_form").submit(function (e) {
+                    // on forms submission send input to our server
+                    input_text = $('#lobby_input').val();
+                    command = '::skeleton'
+                    websocket.send(command+' '+input_text);
+                    e.preventDefault()
+                })
+
+                $('#main_form').submit(function (e) {
+                    // on forms submission send input to our server
+                    input_text = $('#input').val();
                     websocket.send(input_text);
                     $('#input').val('')
                     e.preventDefault()
@@ -182,16 +403,31 @@
                     e.preventDefault()
                 })
 
+                $('#leave_btn').click(function(e){
+                    var command = "::leave";
+                    websocket.send(command);
+                    e.preventDefault()
+                })
+
             });
         </script>
         <style>
             /* just some super basic css to make things bit more readable */
+
+            .container {
+                padding:0;
+            }
             #room_left_panel{
                 height:100%;
 
             }
+            #output p {
+                padding:0;
+                margin:0;
+            }
             #output { 
 
+                padding: 10px 5px;
                 height:100%;
 
                 overflow-y: scroll;
@@ -227,28 +463,63 @@
         </style>
     </head>
     <body>
-        <div class='container' style="height: 800px;width:1000px;">
+        <div class='container' style="height: 800px;width:600px;">
             <div class='vertical-center'>
-                <div class='container'>
-                    <div id="room_info"><h1 id='room_name'></h1></div>
-                    <div class='container'>
-                        <div class="row" style="height:300px;">
-                            <div class='col-md-3 col-lg-3 panel panel-default' id="room_left_panel">...</div><div class='panel panel-default col-md-8 col-lg-8' id="output"></div>
-                        </div>
-                    </div>
-                    <div class='input_container' style="width:1000px;">
-                        <form class="form-inline">
-                         <div class="form-group">
-                            <input id="input" class="form-control" style="width:600px"></input>
-                            <input type="submit" class="form-control"></input>
-                          </div>
+                <div id='registration_menu' class='container'>
+                    <div class='container' style='width:300px;'>
+                        <p>Enter username:</p>
+                        <form id='registration_form' class="form">
+                             <div class="form-group">
+                                <div id='username_validation_report'></div>
+                                <input id="username_input" class="form-control" ></input>
+                              </div>
+                              <div class="form-group">
+                                <input type="submit" class="form-control"></input>
+                              </div>
                         </form>
-                        <div class='form-group'>
-                            <button id="attack_btn" class="btn button" >Attack</button>
-                            <button id="defend_btn" class="btn button" >Block</button>
-                        </div>
                     </div>
-                
+                </div>
+                <div id='lobby_menu' class='container'>
+                    <div class='container' style='width:300px;'>
+                        <p>Enter name of a skeleton you want to fight (leave blank to fight a new one):</p>
+                        <form id='lobby_form' class="form">
+                             <div class="form-group">
+                                <div id='lobby_validation_report'></div>
+                                <input id="lobby_input" class="form-control" ></input>
+                              </div>
+                              <div class="form-group">
+                                <input type="submit" class="form-control" value='Muder a skeleton'></input>
+                              </div>
+                        </form>
+                    </div>
+                </div>
+                <div id='main_menu' class='container'>  
+                        <div id="room_info"><h1 id='room_name'></h1><small>send this name to a friend and he will be able to join you</small><span id="leave_btn" class='btn-info btn-xs btn pull-right'>quit</span></div> 
+                        <br/>
+                        <div class='container' style='width:550px;'>
+                            <div class="row" style="height:300px;">
+                                <div class='panel panel-default' id="room_left_panel" style="float:left;width:200px;padding:10px 5px;"></div><div class='panel panel-default' style="float:left;width:350px;" id="output"></div>
+                            </div>
+                        </div>
+                        <div class='input_container'>
+
+                            <form id="main_form" class="form-inline">
+                             <div class="form-group">
+                                <div id="attack_btn" class='btn-danger btn'>Attack</div>
+                            </div>
+                            <div class="form-group">
+                                <div id="defend_btn" class='btn-primary btn'>Defend</div>
+                            </div>
+                            <div class="form-group">
+                                <input id="input" class="form-control" placeholder='Say something' style="min-width:125px"></input>
+                                </div>
+                                <div class="form-group">
+                                <input type="submit" class="form-control"></input>
+                                </div>
+                              </div>
+                            
+                       </form>
+                    </div>
                 </div>
             </div>
         </div>

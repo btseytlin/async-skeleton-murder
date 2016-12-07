@@ -49,7 +49,6 @@ class Creature:
         if not self.defense:
             if self.state == 'attacking':
                 self.interrupt()
-                
             self.emit_message(self,"creature_took_damage", dmg)
             self.health = self.health - dmg
             self.emit_message(self,"creature_health_report", self.health)
@@ -101,6 +100,54 @@ class Creature:
     
 
 class Skeleton(Creature):
+
+    skeleton_names = [
+        "Abanquetan","Chafret","Frastin","Lebald","Roset",
+    "Adalbain","Chanis","Frith","Leofmar","Rummoth",
+    "Adene","Chard","Fritiltel","Leona","Runadon",
+    "Ading","Christala","Frond","Lethe","Ruppo",
+    "Aebbie","Chrithep","Gabilinn","Liutperi","Sabariver",
+    "Alter","Coros","Gisela","Maladias","Savens",
+    "Amallovan","Coudagi","Gleid","Maldui","Sconius",
+    "Amanui","Crist","Gliforoth","Mallocke","Scropa",
+    "Amatt","Cropre","Glowin","Malloria","Serick",
+    "Amring","Cruel","Goibhach","Malys","Sevanion",
+    "Anberg","Cuilo","Goonen","Mardun","Shani",
+    "Araldor","Darresa","Gunnath","Megin","Sperhaell",
+    "Arbelath","Daurenna","Gwathain","Meldir","Spesi",
+    "Argad","Davina","Gwenie","Melrett","Sreoter",
+    "Arias","Deadan","Gwenvel","Melve","Starollian",
+    "Artus","Delmordian","Herbod","Milimedoc","Surryngel",
+    "Arvedane","Derret","Heriulf","Miodowieft","Sveige",
+    "Athan","Destica","Hharr","Moray","Sylte",
+    "Atten","Devyn","Hildere","Morgan","Taeret",
+    "Bighredigh","Ebervara","Iavalis","Nguan","Tharkathel",
+    "Bioregnir","Echilda","Iboiselvar","Nimbas","Thearc",
+    "Bitireana","Edrovan","Ilmar","Nimrasa","Think",
+    "Bjorn","Edwulf","Imann","Nimrodric","Thomar",
+    "Blaimich","Edyon","Immona","Nitiuba","Thron",
+    "Bouda","Elgil","Irvyn","Opathy","Tibold",
+    "Brach","Eliadafi","Iseach","Orgetesset","Tince",
+    "Bradwaith","Elnothath","Isoreth","Orgettanya","Tiscis",
+    "Braignus","Elshane","Issiror","Osgilos","Tofithlain",
+    "Brigan","Erist","Josciot","Pedra","Tynawd",
+    "Brindes","Ernoran","Josine","Pegan","Tyrkade",
+    "Brith","Esunius","Jozennain","Pehryth","Ulfus",
+    "Brithecra","Etachibeth","Juice","Pelice","Untig",
+    "Brithnico","Ethian","Kaila","Perdus","Uratham",
+    "Budon","Falorix","Kelsigur","Poilton","Vitus",
+    "Buros","Farlindon","Kenedil","Possipsi","Voriz",
+    "Caira","Farnouga","Kenez","Prabanaera","Waingold",
+    "Camrin","Felle","Kennyn","Praso","Wallyn",
+    "Caratus","Fertan","Kenulf","Prettanon","Weret",
+    "Carden","Feyne","Keriath","Quodhach","Wernin",
+    "Cartildath","Finive","Kiricuros","Regovan","Womanor",
+    "Cealda","Florier","Kristhilda","Riciot","Yashadrus",
+    "Cealti","Foiliann","Kylin","Riomareki","Ysmenefer",
+    "Celota","Fraer","Launde","Rohelwynne","Zenwy",
+    "Cemettig","Frames","Leasach","Rohild","Zoranz",
+
+    ]
     def __init__(self, name, uid = None, loop = None, alive=True, machine=None, max_health=100,  damage=5,action_time=3, target=None, targets=None):
         super(Skeleton, self).__init__(name, uid, alive, machine, max_health, damage,action_time, target)
         self.loop = loop or asyncio.get_event_loop()
@@ -118,7 +165,7 @@ class Skeleton(Creature):
                         #self.emit_message(self, 'Skeleton picked a new target: {}'.format(self.target.name))
                         self.emit_message(self,"ai_new_target", self.target)
 
-                if self.target:
+                if self.target and self.target.alive:
                     if self.state == 'idle':
                         dice_roll = random.choice([1, 2])
                         if dice_roll == 1:

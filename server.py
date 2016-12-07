@@ -5,12 +5,10 @@ import signal
 import functools 
 import skeletons
 import concurrent
+import random
 HOST ='localhost'
 PORT = 8765
 
-#todo 
-# 0. 
-# 1. Add skeletons
 
 class ClientAlreadyExistsException(Exception):
     pass
@@ -22,7 +20,11 @@ class SystemMessage():
     valid_msg_types = [
         'registered', #client.uid, client.username
         'joined_room', #room.uid, room.name
-        'client_joined_room', #client.uid, client.username
+        'client_joined_room', #client.uid, client.username,
+        'client_left_room', #client.uid, client.username,
+        'username_prompt',
+        'username_invalid',
+        'validation_error'
     ]
 
     def __init__(self, emitter = None, msg_type = None, args=None, targets=None):
@@ -72,6 +74,7 @@ class Client():
 
 class Room():
     chat_name = 'GLOBAL'
+    room_type = 'generic'
     room_actions = []
     def __init__(self, server=None, loop=None, messages = None, clients = None, uid = None, _name = None):
         self.server = server
@@ -110,18 +113,24 @@ class Room():
         args = command_components[1:]
         return command, args
 
+    def valid_room_name(self, text):
+        if not text.strip():
+            return False
+        return True
+
     async def on_client_joined(self, client):
-        await self.send_system_message(SystemMessage(self, 'joined_room',[self.uid, self.name], targets=[client]))
+        await self.send_system_message(SystemMessage(self, 'joined_room',[self.uid, self.name, self.room_type], targets=[client]))
         history = self.readable_history(client)
         if history:
             await self.send_text(history, [client])
-        message = Message(self, '{} connected'.format(client.username))
+       # message = Message(self, '{} connected'.format(client.username))
         await self.send_system_message(SystemMessage(self, 'client_joined_room',[client.uid, client.username]))
-        await self.send_message(message)
+        #await self.send_message(message)
 
     async def on_client_disconnected(self, client):
-        message = Message(self, '{} disconnected'.format(client.username))
-        await self.send_message(message)
+        #message = Message(self, '{} disconnected'.format(client.username))
+        #await self.send_message(message)   
+        await self.send_system_message(SystemMessage(self, 'client_left_room',[client.uid, client.username]))
 
     async def handle_command(self, message):
         pass
@@ -183,10 +192,11 @@ class Room():
         if sending_list:
             done, pending = await asyncio.wait(sending_list)
 
+
     
 class SubRoom(Room):
     async def remove_client(self, client):
-        await super().remove_client(client)
+        await super(SubRoom, self).remove_client(client)
         if not self.clients: # Suicide
             self.server.rooms.remove(self)
             self = None
@@ -194,20 +204,24 @@ class SubRoom(Room):
 
 class SkeletonRoom(SubRoom):
     chat_name = "Spooky voice"
+    room_type = 'skeleton'
     def __init__(self, server=None, loop=None, messages = None, clients = None, uid = None, _name = None, skeleton=None, players=None):
         super(SkeletonRoom, self).__init__(server, loop, messages, clients, uid, _name)
 
 
         self.skeleton = skeleton or skeletons.Skeleton(loop = self.loop,name='skeleton')
+        if not self._name:
+            self._name = 'Skeleton fight'
         self.skeleton.emit_message = self.handle_game_message
         self.players = players or []
 
         self.start_game()
 
     async def remove_client(self, client):
-        await super().remove_client(client)
-        if not self.clients or not [client for client in self.clients if client.player.alive]: # Suicide
-            self.server.rooms.remove(self)
+        await super(SkeletonRoom, self).remove_client(client)
+        if not self.clients or not [client for client in self.clients if client.player.alive]:
+            if self in self.server.rooms:
+                self.server.rooms.remove(self)  # Suicide
             self = None
 
     def handle_game_message(self, emitter, msg_type, *args):
@@ -228,7 +242,7 @@ class SkeletonRoom(SubRoom):
 
         if msg_type == 'ai_new_target':
             target = args[0]
-            args = [target.name]
+            args = [target.uid]
 
         #Send the message for the client to handle
         sys_message = SystemMessage(emitter, msg_type, list(args))
@@ -236,12 +250,14 @@ class SkeletonRoom(SubRoom):
 
 
     async def on_client_joined(self, client):
-        ply = skeletons.Player(loop = self.loop,name=client.username, target=self.skeleton, client=client)
-
+        await self.send_system_message(SystemMessage(self, 'joined_room',[self.uid, self.name, self.room_type], targets=[client]))
+        ply = skeletons.Player(uid=client.uid, loop = self.loop,name=client.username, target=self.skeleton, client=client)
         ply.target = self.skeleton
         ply.emit_message = self.handle_game_message
         client.player = ply
         self.skeleton.targets.append(client.player)
+
+        await self.send_system_message(SystemMessage(self, 'client_joined_room',[client.uid, client.username]))
 
         ui_setup_msg = GameSystemMessage(self, 'ui_setup_creature', self.skeleton.full_report(), [client])
         await self.send_system_message(ui_setup_msg)
@@ -250,8 +266,9 @@ class SkeletonRoom(SubRoom):
             ui_setup_msg = GameSystemMessage(self, 'ui_setup_creature', cl.player.full_report(), [client])
             await self.send_system_message(ui_setup_msg)
 
-        message = Message(self, '{} entered the skeleton fight!'.format(client.username))
-        await self.send_message(message)
+
+        #message = Message(self, '{} entered the skeleton fight!'.format(client.username))
+        #await self.send_message(message)
 
 
 
@@ -261,8 +278,8 @@ class SkeletonRoom(SubRoom):
         if self.skeleton.target == client.player:
             self.skeleton.target = None
         client.player = None
-        message = Message(self, '{} ran from the fight!'.format(client.username))
-        await self.send_message(message)
+        #message = Message(self, '{} ran from the fight!'.format(client.username))
+        #await self.send_message(message)
 
 
     def start_game(self):
@@ -305,24 +322,25 @@ class SkeletonRoom(SubRoom):
             'attack':handle_attack,
             "defense":handle_defense
         }
-
-        error_message = Message(author=self, targets=[client])
+        error_text = None
+        
         if command in available_commands.keys():
             result = await available_commands[command](*args)
             if result:
-                error_message.text = 'Error: {}'.format(result)
+                error_text = '{}'.format(result)
         else:
-            error_message.text =  'Unrecognized command'
+            error_text =  'Unrecognized command.'
 
-        if error_message.text:
-            await self.send_message(error_message, log = False)
+        if error_text:
+            error_message = SystemMessage(emitter=self, msg_type='validation_error', args=[error_text], targets=[client])
+            await self.send_system_message(error_message)
 
 
 
 
 class ChatRoom(SubRoom):
     chat_name = 'Chat'
-
+    room_type = 'chat'
     async def handle_command(self, message):
         client = message.author
         text = message.text
@@ -341,21 +359,24 @@ class ChatRoom(SubRoom):
             "leave":handle_leave,
         }
 
-        error_message = Message(author=self, targets=[client])
+        error_text = None
+        
         if command in available_commands.keys():
             result = await available_commands[command](*args)
             if result:
-                error_message.text = 'Error: {}'.format(result)
+                error_text = '{}'.format(result)
         else:
-            error_message.text =  'Unrecognized command'
+            error_text =  'Unrecognized command.'
 
-        if error_message.text:
-            await self.send_message(error_message, log = False)
+        if error_text:
+            error_message = SystemMessage(emitter=self, msg_type='validation_error', args=[error_text], targets=[client])
+            await self.send_system_message(error_message)
 
 
 
 class LobbyRoom(Room):
     chat_name = 'Lobby'
+    room_type = 'lobby'
     async def register_client(self, client):
         try:
             self.clients.add(client)
@@ -396,7 +417,7 @@ class LobbyRoom(Room):
             min_args_len = 1
             max_args_len = 1
             if len(args) > max_args_len:
-                return "Too many arguments, expected at most{}.".format(max_args_len)
+                return "Too many arguments, expected at most {}.".format(max_args_len)
             if len(args) < min_args_len:
                 return "Too few arguments, expected at least {}.".format(min_args_len)
             room_name = args[0]
@@ -413,21 +434,27 @@ class LobbyRoom(Room):
             return 0
 
         async def handle_skeleton(*args):
-            min_args_len = 1
+            min_args_len = 0
             max_args_len = 1
-            if len(args) > max_args_len:
-                return "Too many arguments, expected at most{}.".format(max_args_len)
-            if len(args) < min_args_len:
-                return "Too few arguments, expected at least {}.".format(min_args_len)
-            room_name = args[0]
+            if len(args) > max_args_len or len(args) < min_args_len:
+                return "Skeleton name should be a single word."
+
+            if len(args) > 0:
+                room_name = args[0]
+            else:
+                room_name = random.choice([name for name in skeletons.Skeleton.skeleton_names if not name in [room.name for room in self.server.rooms]])
+            if not self.valid_room_name(room_name):
+                return "Invalid name"
 
             new_room = None
             for room in self.server.rooms:
                 if room.name == room_name:
                     new_room = room
+                    if len(new_room.clients) > 1:
+                        return "That skeleton fight already has 2 warriors, you can't join."
 
             if not new_room:
-                new_room = SkeletonRoom(self.server, self.loop, _name=room_name)
+                new_room = SkeletonRoom(self.server, self.loop, _name = room_name)
             
             await client.room.remove_client(client)
             await new_room.register_client(client)
@@ -436,21 +463,22 @@ class LobbyRoom(Room):
 
         
         available_commands = {
-            "join":handle_join,
-            "create":handle_create,
+            #"join":handle_join,
+            #"create":handle_create,
             "skeleton":handle_skeleton,
         }
-
-        error_message = Message(author=self, targets=[client])
+        error_text = None
+        
         if command in available_commands.keys():
             result = await available_commands[command](*args)
             if result:
-                error_message.text = 'Error: {}'.format(result)
+                error_text = '{}'.format(result)
         else:
-            error_message.text =  'Unrecognized command'
+            error_text =  'Unrecognized command.'
 
-        if error_message.text:
-            await self.send_message(error_message, log = False)
+        if error_text:
+            error_message = SystemMessage(emitter=self, msg_type='validation_error', args=[error_text], targets=[client])
+            await self.send_system_message(error_message)
 
 class ChatServer:
     def __init__(self, host=HOST, port=PORT, loop=None, messages = None, clients = None, rooms = None, skeletons = None):
@@ -479,9 +507,17 @@ class ChatServer:
         await websocket.send(text)
 
     def valid_username(self, text):
-        if text.strip() and not ':' in text:
-            return True
-        return False
+        if not text.strip() or ':' in text:
+            return False
+
+        for clients in self.room.clients:
+            if client.username == text:
+                return False
+        for room in self.rooms:
+            for client in room.clients:
+                if client.username == text:
+                    return False
+        return True
 
     async def handler(self, websocket, path):
         client = None
@@ -490,10 +526,10 @@ class ChatServer:
                 client = self.get_client(websocket)
                 if not client:
                     client = Client(websocket=websocket)
-                    await websocket.send('Please register by typing your username')
+                    await websocket.send('sysmsg||username_prompt')
                     username = await websocket.recv()
                     if not self.valid_username(username):
-                        await websocket.send('Invalid username, try another')
+                        await websocket.send('sysmsg||username_invalid')
                         continue
                     client.username = username
                     await self.room.register_client(client)
