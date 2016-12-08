@@ -115,7 +115,7 @@
                 msg_type = system_msg_components[2];
                 args = system_msg_components.slice(3,system_msg_components.length);
 
-                console.log(emitter_id, msg_type, args)
+                //console.log(emitter_id, msg_type, args)
 
                 /*
                             "creature_took_damage",
@@ -172,6 +172,8 @@
                         if (room_type == 'skeleton'){
                             handle_chat_message('<u>'+client_uname+'</u> left the fight!')
                         }
+
+                        $('#'+client_uid).remove()
                         break;
 
 
@@ -331,6 +333,9 @@
                         $('#lobby_validation_report').text(error_text)
                         break;
 
+                    default:
+                        console.log('Unhandled message')
+
                 }
 
             }
@@ -361,8 +366,16 @@
                 $('#lobby_menu').hide()
                 // create websocket instance
                 websocket = new WebSocket("ws://"+HOST+":"+PORT+"/ws");
+
+                // Handler for onerror:
+                function OnSocketError(ev)
+                {
+                    alert("Couldn't connect to server on specified host and port!")
+                }
+
+                websocket.onerror = OnSocketError;
+
                 
-                // add event listener reacting when message is received
 
 
                 websocket.onmessage = function (event) {
@@ -481,7 +494,7 @@
                 </div>
                 <div id='lobby_menu' class='container'>
                     <div class='container' style='width:300px;'>
-                        <p>Enter name of a skeleton you want to fight (leave blank to fight a new one):</p>
+                        <p>Enter name of a skeleton you want to fight (leave blank to fight a new, random skeleton):</p>
                         <form id='lobby_form' class="form">
                              <div class="form-group">
                                 <div id='lobby_validation_report'></div>
