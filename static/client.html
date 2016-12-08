@@ -193,7 +193,6 @@
                         creature = find_creature_by_uid(uid)
                         if (creature){
                             message = '<u>'+creature['name']+'</u>'+' took '+String(dmg)+' damage.'
-                            console.log(uid, client_uid)
                             if (uid == client_uid){
                                 message = "<span class='text-danger'>"+message+"</span>"
                             }
@@ -334,7 +333,7 @@
                         break;
 
                     default:
-                        console.log('Unhandled message')
+                        console.log('Unhandled message', msg_type, args)
 
                 }
 
@@ -365,7 +364,12 @@
                 $('#main_menu').hide()
                 $('#lobby_menu').hide()
                 // create websocket instance
-                websocket = new WebSocket("ws://"+HOST+":"+PORT+"/ws");
+                try {
+                    websocket = new WebSocket("ws://"+HOST+":"+PORT+"/ws");
+                }
+                catch (e){ 
+                    OnSocketError(e)
+                }
 
                 // Handler for onerror:
                 function OnSocketError(ev)
