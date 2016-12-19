@@ -1,7 +1,7 @@
 import asyncio
 import websockets
 import concurrent.futures
-HOST ='localhost'
+HOST ='46.101.223.26'
 PORT = 8765
 
 

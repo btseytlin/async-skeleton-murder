@@ -9,7 +9,7 @@ import random
 import logging
 import sys
 from logging.handlers import RotatingFileHandler
-HOST ='localhost'
+HOST =''
 PORT = 8765
 
 logger = logging.getLogger('skeleton_fighting')
